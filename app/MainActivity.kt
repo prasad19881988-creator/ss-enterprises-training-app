@@ -22,11 +22,19 @@ class MainActivity : AppCompatActivity() {
         val videoButton = Button(this)
         videoButton.text = "Start Video Training"
 
+        val screenButton = Button(this)
+        screenButton.text = "Share Screen"
+
+        val muteButton = Button(this)
+        muteButton.text = "Mute / Unmute"
+
         val adminButton = Button(this)
         adminButton.text = "Admin Panel"
 
         layout.addView(title)
         layout.addView(videoButton)
+        layout.addView(screenButton)
+        layout.addView(muteButton)
         layout.addView(adminButton)
 
         setContentView(layout)
