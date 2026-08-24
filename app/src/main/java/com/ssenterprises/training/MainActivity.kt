@@ -266,7 +266,7 @@ class MainActivity : AppCompatActivity() {
                 val tokenSource =
                     TokenSource.fromEndpoint(
                         "https://ss-enterprises-training-backend.onrender.com/token",
-                        "GET"
+                        "POST"
                     )
 
                 /*
