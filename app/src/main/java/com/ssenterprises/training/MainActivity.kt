@@ -3,8 +3,10 @@ package com.ssenterprises.training
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -130,6 +132,23 @@ class MainActivity : AppCompatActivity() {
         )
 
         /*
+         * Logo
+         */
+        val logo = ImageView(this)
+
+        logo.setImageResource(
+            R.drawable.a_clean_professional_logo_branding_graphic_on_a_de
+        )
+
+        logo.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            300
+        )
+
+        logo.adjustViewBounds = true
+        logo.scaleType = ImageView.ScaleType.CENTER_INSIDE
+
+        /*
          * Title
          */
         val title = TextView(this)
@@ -169,6 +188,8 @@ class MainActivity : AppCompatActivity() {
         /*
          * Add views
          */
+        layout.addView(logo)
+
         layout.addView(title)
 
         layout.addView(videoButton)
@@ -241,9 +262,6 @@ class MainActivity : AppCompatActivity() {
 
                 /*
                  * Token endpoint
-                 *
-                 * Keep GET here because this is the endpoint
-                 * currently configured in your project.
                  */
                 val tokenSource =
                     TokenSource.fromEndpoint(
@@ -253,9 +271,6 @@ class MainActivity : AppCompatActivity() {
 
                 /*
                  * Fetch LiveKit credentials
-                 *
-                 * LiveKit returns Result<TokenSourceResponse>,
-                 * so getOrThrow() is required.
                  */
                 val response =
                     tokenSource.fetch(
@@ -265,7 +280,7 @@ class MainActivity : AppCompatActivity() {
                     ).getOrThrow()
 
                 /*
-                 * Connect using server URL + participant token
+                 * Connect to LiveKit
                  */
                 room.connect(
                     url = response.serverUrl,
@@ -346,7 +361,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         /*
-         * User must be connected before sharing screen
+         * User must start video training first
          */
         if (!room.localParticipant.isMicrophoneEnabled &&
             !room.localParticipant.isCameraEnabled
@@ -364,7 +379,7 @@ class MainActivity : AppCompatActivity() {
         val mediaProjectionManager =
             getSystemService(
                 MEDIA_PROJECTION_SERVICE
-            ) as android.media.projection.MediaProjectionManager
+            ) as MediaProjectionManager
 
         screenCaptureLauncher.launch(
             mediaProjectionManager.createScreenCaptureIntent()
