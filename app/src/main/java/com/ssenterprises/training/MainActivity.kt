@@ -15,45 +15,94 @@ import androidx.lifecycle.lifecycleScope
 import io.livekit.android.ConnectOptions
 import io.livekit.android.LiveKit
 import io.livekit.android.room.Room
+import io.livekit.android.room.track.screencapture.ScreenCaptureParams
+import io.livekit.android.token.TokenRequestOptions
+import io.livekit.android.token.TokenSource
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var room: Room
 
+    /*
+     * Screen capture result
+     */
     private val screenCaptureLauncher =
         registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
         ) { result ->
 
-            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            if (result.resultCode != Activity.RESULT_OK) {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Screen sharing cancelled",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@registerForActivityResult
+            }
 
-                val data = result.data!!
+            val data = result.data
 
-                lifecycleScope.launch {
+            if (data == null) {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Screen capture data not available",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@registerForActivityResult
+            }
 
-                    try {
+            lifecycleScope.launch {
 
-                        room.localParticipant.setScreenShareEnabled(
-                            true,
-                            data
-                        )
+                try {
 
-                        Toast.makeText(
-                            this@MainActivity,
-                            "Screen sharing started",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                    room.localParticipant.setScreenShareEnabled(
+                        true,
+                        ScreenCaptureParams(data)
+                    )
 
-                    } catch (e: Exception) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Screen sharing started",
+                        Toast.LENGTH_SHORT
+                    ).show()
 
-                        Toast.makeText(
-                            this@MainActivity,
-                            "Screen share error: ${e.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
+                } catch (e: Exception) {
+
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Screen share error: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
+            }
+        }
+
+    /*
+     * Camera + microphone permission
+     */
+    private val requestPermissionsLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { permissions ->
+
+            val cameraGranted =
+                permissions[Manifest.permission.CAMERA] == true
+
+            val audioGranted =
+                permissions[Manifest.permission.RECORD_AUDIO] == true
+
+            if (cameraGranted && audioGranted) {
+
+                connectToTraining()
+
+            } else {
+
+                Toast.makeText(
+                    this,
+                    "Camera and microphone permission required",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
 
@@ -61,8 +110,14 @@ class MainActivity : AppCompatActivity() {
 
         super.onCreate(savedInstanceState)
 
+        /*
+         * Create LiveKit room
+         */
         room = LiveKit.create(applicationContext)
 
+        /*
+         * Main layout
+         */
         val layout = LinearLayout(this)
 
         layout.orientation = LinearLayout.VERTICAL
@@ -74,28 +129,46 @@ class MainActivity : AppCompatActivity() {
             40
         )
 
+        /*
+         * Title
+         */
         val title = TextView(this)
 
         title.text = "SS Enterprises Training"
 
         title.textSize = 28f
 
+        /*
+         * Video button
+         */
         val videoButton = Button(this)
 
         videoButton.text = "Start Video Training"
 
+        /*
+         * Screen share button
+         */
         val screenButton = Button(this)
 
         screenButton.text = "Share Screen"
 
+        /*
+         * Mute button
+         */
         val muteButton = Button(this)
 
         muteButton.text = "Mute / Unmute"
 
+        /*
+         * Admin button
+         */
         val adminButton = Button(this)
 
         adminButton.text = "Admin Panel"
 
+        /*
+         * Add views
+         */
         layout.addView(title)
 
         layout.addView(videoButton)
@@ -108,21 +181,33 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(layout)
 
+        /*
+         * Video training
+         */
         videoButton.setOnClickListener {
 
             connectToTraining()
         }
 
+        /*
+         * Mute / unmute
+         */
         muteButton.setOnClickListener {
 
             toggleMute()
         }
 
+        /*
+         * Screen share
+         */
         screenButton.setOnClickListener {
 
             startScreenShare()
         }
 
+        /*
+         * Admin panel
+         */
         adminButton.setOnClickListener {
 
             Toast.makeText(
@@ -133,6 +218,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /*
+     * Connect to LiveKit training room
+     */
     private fun connectToTraining() {
 
         if (!hasPermissions()) {
@@ -152,21 +240,33 @@ class MainActivity : AppCompatActivity() {
             try {
 
                 /*
-                 * Our Render backend token endpoint
+                 * Token endpoint
+                 *
+                 * Keep GET here because this is the endpoint
+                 * currently configured in your project.
                  */
                 val tokenSource =
-                    io.livekit.android.token.TokenSource.fromEndpoint(
+                    TokenSource.fromEndpoint(
                         "https://ss-enterprises-training-backend.onrender.com/token",
                         "GET"
                     )
 
+                /*
+                 * Fetch LiveKit credentials
+                 *
+                 * LiveKit returns Result<TokenSourceResponse>,
+                 * so getOrThrow() is required.
+                 */
                 val response =
                     tokenSource.fetch(
-                        io.livekit.android.token.TokenRequestOptions(
+                        TokenRequestOptions(
                             roomName = "ss-enterprises-training"
                         )
-                    )
+                    ).getOrThrow()
 
+                /*
+                 * Connect using server URL + participant token
+                 */
                 room.connect(
                     url = response.serverUrl,
                     token = response.participantToken,
@@ -193,6 +293,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /*
+     * Mute / unmute microphone
+     */
     private fun toggleMute() {
 
         lifecycleScope.launch {
@@ -226,9 +329,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /*
+     * Start Android screen capture permission dialog
+     */
     private fun startScreenShare() {
 
         if (!hasPermissions()) {
+
+            Toast.makeText(
+                this,
+                "Please allow camera and microphone permission first",
+                Toast.LENGTH_SHORT
+            ).show()
+
+            return
+        }
+
+        /*
+         * User must be connected before sharing screen
+         */
+        if (!room.localParticipant.isMicrophoneEnabled &&
+            !room.localParticipant.isCameraEnabled
+        ) {
 
             Toast.makeText(
                 this,
@@ -249,55 +371,34 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /*
+     * Check camera + microphone permissions
+     */
     private fun hasPermissions(): Boolean {
 
-        return ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.CAMERA
-        ) == PackageManager.PERMISSION_GRANTED
+        val cameraGranted =
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
 
-                &&
+        val audioGranted =
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
 
-                ContextCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.RECORD_AUDIO
-                ) == PackageManager.PERMISSION_GRANTED
+        return cameraGranted && audioGranted
     }
-
-    private val requestPermissionsLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { permissions ->
-
-            val cameraGranted =
-                permissions[
-                    Manifest.permission.CAMERA
-                ] == true
-
-            val audioGranted =
-                permissions[
-                    Manifest.permission.RECORD_AUDIO
-                ] == true
-
-            if (cameraGranted && audioGranted) {
-
-                connectToTraining()
-
-            } else {
-
-                Toast.makeText(
-                    this,
-                    "Camera and microphone permission required",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }
 
     override fun onDestroy() {
 
-        room.disconnect()
+        if (::room.isInitialized) {
 
-        room.release()
+            room.disconnect()
+
+            room.release()
+        }
 
         super.onDestroy()
     }
