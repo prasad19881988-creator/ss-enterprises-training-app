@@ -21,19 +21,23 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var room: Room
 
-    // आपके LiveKit Cloud का Development Token Server ID
-    private val tokenServerId = "ssenterprisestraining-1t3h7i"
-
     private val screenCaptureLauncher =
         registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
         ) { result ->
+
             if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+
                 val data = result.data!!
 
                 lifecycleScope.launch {
+
                     try {
-                        room.localParticipant.setScreenShareEnabled(true, data)
+
+                        room.localParticipant.setScreenShareEnabled(
+                            true,
+                            data
+                        )
 
                         Toast.makeText(
                             this@MainActivity,
@@ -42,6 +46,7 @@ class MainActivity : AppCompatActivity() {
                         ).show()
 
                     } catch (e: Exception) {
+
                         Toast.makeText(
                             this@MainActivity,
                             "Screen share error: ${e.message}",
@@ -53,51 +58,73 @@ class MainActivity : AppCompatActivity() {
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+
         super.onCreate(savedInstanceState)
 
         room = LiveKit.create(applicationContext)
 
         val layout = LinearLayout(this)
+
         layout.orientation = LinearLayout.VERTICAL
-        layout.setPadding(40, 60, 40, 40)
+
+        layout.setPadding(
+            40,
+            60,
+            40,
+            40
+        )
 
         val title = TextView(this)
+
         title.text = "SS Enterprises Training"
+
         title.textSize = 28f
 
         val videoButton = Button(this)
+
         videoButton.text = "Start Video Training"
 
         val screenButton = Button(this)
+
         screenButton.text = "Share Screen"
 
         val muteButton = Button(this)
+
         muteButton.text = "Mute / Unmute"
 
         val adminButton = Button(this)
+
         adminButton.text = "Admin Panel"
 
         layout.addView(title)
+
         layout.addView(videoButton)
+
         layout.addView(screenButton)
+
         layout.addView(muteButton)
+
         layout.addView(adminButton)
 
         setContentView(layout)
 
         videoButton.setOnClickListener {
+
             connectToTraining()
         }
 
         muteButton.setOnClickListener {
+
             toggleMute()
         }
 
         screenButton.setOnClickListener {
+
             startScreenShare()
         }
 
         adminButton.setOnClickListener {
+
             Toast.makeText(
                 this,
                 "Admin Panel - Coming Soon",
@@ -109,27 +136,36 @@ class MainActivity : AppCompatActivity() {
     private fun connectToTraining() {
 
         if (!hasPermissions()) {
+
             requestPermissionsLauncher.launch(
                 arrayOf(
                     Manifest.permission.CAMERA,
                     Manifest.permission.RECORD_AUDIO
                 )
             )
+
             return
         }
 
         lifecycleScope.launch {
+
             try {
 
+                /*
+                 * Our Render backend token endpoint
+                 */
                 val tokenSource =
-                    io.livekit.android.token.TokenSource
-                        .fromDevelopmentTokenServer(tokenServerId)
-
-                val response = tokenSource.fetch(
-                    io.livekit.android.token.TokenRequestOptions(
-                        roomName = "ss-enterprises-training"
+                    io.livekit.android.token.TokenSource.fromEndpoint(
+                        "https://ss-enterprises-training-backend.onrender.com/token",
+                        "GET"
                     )
-                )
+
+                val response =
+                    tokenSource.fetch(
+                        io.livekit.android.token.TokenRequestOptions(
+                            roomName = "ss-enterprises-training"
+                        )
+                    )
 
                 room.connect(
                     url = response.serverUrl,
@@ -160,17 +196,22 @@ class MainActivity : AppCompatActivity() {
     private fun toggleMute() {
 
         lifecycleScope.launch {
+
             try {
 
                 val enabled =
                     room.localParticipant.isMicrophoneEnabled
 
-                room.localParticipant.setMicrophoneEnabled(!enabled)
+                room.localParticipant.setMicrophoneEnabled(
+                    !enabled
+                )
 
                 Toast.makeText(
                     this@MainActivity,
-                    if (enabled) "Microphone muted"
-                    else "Microphone unmuted",
+                    if (enabled)
+                        "Microphone muted"
+                    else
+                        "Microphone unmuted",
                     Toast.LENGTH_SHORT
                 ).show()
 
@@ -188,17 +229,20 @@ class MainActivity : AppCompatActivity() {
     private fun startScreenShare() {
 
         if (!hasPermissions()) {
+
             Toast.makeText(
                 this,
                 "Please start video training first",
                 Toast.LENGTH_SHORT
             ).show()
+
             return
         }
 
         val mediaProjectionManager =
-            getSystemService(MEDIA_PROJECTION_SERVICE)
-                    as android.media.projection.MediaProjectionManager
+            getSystemService(
+                MEDIA_PROJECTION_SERVICE
+            ) as android.media.projection.MediaProjectionManager
 
         screenCaptureLauncher.launch(
             mediaProjectionManager.createScreenCaptureIntent()
@@ -210,7 +254,10 @@ class MainActivity : AppCompatActivity() {
         return ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.CAMERA
-        ) == PackageManager.PERMISSION_GRANTED &&
+        ) == PackageManager.PERMISSION_GRANTED
+
+                &&
+
                 ContextCompat.checkSelfPermission(
                     this,
                     Manifest.permission.RECORD_AUDIO
@@ -223,14 +270,21 @@ class MainActivity : AppCompatActivity() {
         ) { permissions ->
 
             val cameraGranted =
-                permissions[Manifest.permission.CAMERA] == true
+                permissions[
+                    Manifest.permission.CAMERA
+                ] == true
 
             val audioGranted =
-                permissions[Manifest.permission.RECORD_AUDIO] == true
+                permissions[
+                    Manifest.permission.RECORD_AUDIO
+                ] == true
 
             if (cameraGranted && audioGranted) {
+
                 connectToTraining()
+
             } else {
+
                 Toast.makeText(
                     this,
                     "Camera and microphone permission required",
@@ -240,8 +294,11 @@ class MainActivity : AppCompatActivity() {
         }
 
     override fun onDestroy() {
+
         room.disconnect()
+
         room.release()
+
         super.onDestroy()
     }
 }
