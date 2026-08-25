@@ -38,10 +38,23 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var mainLayout: LinearLayout
 
-    private lateinit var remoteRenderer: SurfaceViewRenderer
-    private lateinit var localRenderer: SurfaceViewRenderer
+    private var remoteRenderer: SurfaceViewRenderer? = null
+    private var localRenderer: SurfaceViewRenderer? = null
 
     private var isConnecting = false
+    private var videoScreenShown = false
+
+    /*
+     * LiveKit room name
+     */
+    private val trainingRoomName =
+        "ss-enterprises-training"
+
+    /*
+     * Token backend
+     */
+    private val tokenEndpoint =
+        "https://ss-enterprises-training-backend.onrender.com/token"
 
     /*
      * Screen sharing permission
@@ -52,6 +65,7 @@ class MainActivity : AppCompatActivity() {
         ) { result ->
 
             if (result.resultCode != Activity.RESULT_OK) {
+
                 Toast.makeText(
                     this,
                     "Screen sharing cancelled",
@@ -64,6 +78,7 @@ class MainActivity : AppCompatActivity() {
             val data = result.data
 
             if (data == null) {
+
                 Toast.makeText(
                     this,
                     "Screen capture data not available",
@@ -76,6 +91,12 @@ class MainActivity : AppCompatActivity() {
             lifecycleScope.launch {
 
                 try {
+
+                    if (room.state ==
+                        Room.State.DISCONNECTED
+                    ) {
+                        return@launch
+                    }
 
                     room.localParticipant.setScreenShareEnabled(
                         true,
@@ -133,13 +154,22 @@ class MainActivity : AppCompatActivity() {
 
         room = LiveKit.create(applicationContext)
 
+        /*
+         * Start listening BEFORE connecting.
+         * This is important so remote participant/video events
+         * are not missed during connection.
+         */
+        startRoomEventListener()
+
         createHomeScreen()
     }
 
     /*
-     * Simple home screen for now
+     * Home screen
      */
     private fun createHomeScreen() {
+
+        videoScreenShown = false
 
         mainLayout = LinearLayout(this)
 
@@ -239,9 +269,6 @@ class MainActivity : AppCompatActivity() {
      */
     private fun connectToTraining() {
 
-        /*
-         * Prevent double click / duplicate connect
-         */
         if (isConnecting) {
 
             Toast.makeText(
@@ -256,13 +283,9 @@ class MainActivity : AppCompatActivity() {
         /*
          * Already connected
          */
-        if (room.state != Room.State.DISCONNECTED) {
-
-            Toast.makeText(
-                this,
-                "Already connected to training",
-                Toast.LENGTH_SHORT
-            ).show()
+        if (room.state !=
+            Room.State.DISCONNECTED
+        ) {
 
             showVideoScreen()
 
@@ -270,7 +293,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         /*
-         * Check permissions
+         * Permissions
          */
         if (!hasPermissions()) {
 
@@ -291,27 +314,27 @@ class MainActivity : AppCompatActivity() {
             try {
 
                 /*
-                 * Token server
+                 * Token source
                  */
                 val tokenSource =
                     TokenSource.fromEndpoint(
-                        "https://ss-enterprises-training-backend.onrender.com/token",
+                        tokenEndpoint,
                         "POST"
                     )
 
                 /*
-                 * Get token
+                 * Get LiveKit token
                  */
                 val response =
                     tokenSource.fetch(
                         TokenRequestOptions(
                             roomName =
-                                "ss-enterprises-training"
+                                trainingRoomName
                         )
                     ).getOrThrow()
 
                 /*
-                 * Connect
+                 * Connect to LiveKit
                  */
                 room.connect(
                     url = response.serverUrl,
@@ -323,45 +346,20 @@ class MainActivity : AppCompatActivity() {
                 )
 
                 /*
-                 * Show video screen
+                 * First create video screen.
                  */
                 showVideoScreen()
 
                 /*
-                 * Attach local camera
+                 * Attach our local camera.
                  */
-                val localTrack =
-                    room.localParticipant
-                        .getTrackPublication(
-                            Track.Source.CAMERA
-                        )
-                        ?.track as? LocalVideoTrack
-
-                if (localTrack != null) {
-
-                    localTrack.addRenderer(
-                        localRenderer
-                    )
-                }
+                attachLocalVideo()
 
                 /*
-                 * Check existing remote participant
+                 * Attach any remote participant
+                 * that was already present.
                  */
-                val remoteTrack =
-                    room.remoteParticipants
-                        .values
-                        .firstOrNull()
-                        ?.getTrackPublication(
-                            Track.Source.CAMERA
-                        )
-                        ?.track as? VideoTrack
-
-                if (remoteTrack != null) {
-
-                    remoteTrack.addRenderer(
-                        remoteRenderer
-                    )
-                }
+                attachExistingRemoteVideos()
 
                 Toast.makeText(
                     this@MainActivity,
@@ -385,9 +383,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     /*
-     * Listen for remote video
+     * LiveKit room events
      */
-    private fun listenForRemoteVideo() {
+    private fun startRoomEventListener() {
 
         lifecycleScope.launch {
 
@@ -395,6 +393,29 @@ class MainActivity : AppCompatActivity() {
 
                 when (event) {
 
+                    /*
+                     * A participant joined.
+                     */
+                    is RoomEvent.ParticipantConnected -> {
+
+                        runOnUiThread {
+
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Participant joined",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+
+                        attachParticipantVideo(
+                            event.participant
+                        )
+                    }
+
+                    /*
+                     * A participant's video track
+                     * became available.
+                     */
                     is RoomEvent.TrackSubscribed -> {
 
                         val track =
@@ -402,15 +423,116 @@ class MainActivity : AppCompatActivity() {
 
                         if (track is VideoTrack) {
 
-                            track.addRenderer(
-                                remoteRenderer
-                            )
+                            attachRemoteTrack(track)
+                        }
+                    }
+
+                    /*
+                     * Remote participant left.
+                     */
+                    is RoomEvent.ParticipantDisconnected -> {
+
+                        runOnUiThread {
+
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Participant left",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                     }
 
                     else -> {
+                        // Other LiveKit events are not needed here.
                     }
                 }
+            }
+        }
+    }
+
+    /*
+     * Attach local camera
+     */
+    private fun attachLocalVideo() {
+
+        val renderer =
+            localRenderer ?: return
+
+        val localTrack =
+            room.localParticipant
+                .getTrackPublication(
+                    Track.Source.CAMERA
+                )
+                ?.track as? LocalVideoTrack
+
+        if (localTrack != null) {
+
+            localTrack.addRenderer(
+                renderer
+            )
+        }
+    }
+
+    /*
+     * Attach already connected participants
+     */
+    private fun attachExistingRemoteVideos() {
+
+        for (participant in
+            room.remoteParticipants.values
+        ) {
+
+            attachParticipantVideo(
+                participant
+            )
+        }
+    }
+
+    /*
+     * Attach participant's camera
+     */
+    private fun attachParticipantVideo(
+        participant: io.livekit.android.room.participant.RemoteParticipant
+    ) {
+
+        val track =
+            participant
+                .getTrackPublication(
+                    Track.Source.CAMERA
+                )
+                ?.track as? VideoTrack
+
+        if (track != null) {
+
+            attachRemoteTrack(track)
+        }
+    }
+
+    /*
+     * Attach remote track to remote renderer
+     */
+    private fun attachRemoteTrack(
+        track: VideoTrack
+    ) {
+
+        runOnUiThread {
+
+            val renderer =
+                remoteRenderer ?: return@runOnUiThread
+
+            try {
+
+                track.addRenderer(
+                    renderer
+                )
+
+            } catch (e: Exception) {
+
+                Toast.makeText(
+                    this@MainActivity,
+                    "Remote video error: ${e.message}",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
     }
@@ -420,21 +542,30 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showVideoScreen() {
 
+        if (videoScreenShown) {
+            return
+        }
+
+        videoScreenShown = true
+
         val root =
             FrameLayout(this)
 
         /*
          * Remote video
          */
-        remoteRenderer =
+        val newRemoteRenderer =
             SurfaceViewRenderer(this)
 
+        remoteRenderer =
+            newRemoteRenderer
+
         room.initVideoRenderer(
-            remoteRenderer
+            newRemoteRenderer
         )
 
         root.addView(
-            remoteRenderer,
+            newRemoteRenderer,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
@@ -442,13 +573,16 @@ class MainActivity : AppCompatActivity() {
         )
 
         /*
-         * Local small video
+         * Local preview
          */
-        localRenderer =
+        val newLocalRenderer =
             SurfaceViewRenderer(this)
 
+        localRenderer =
+            newLocalRenderer
+
         room.initVideoRenderer(
-            localRenderer
+            newLocalRenderer
         )
 
         val localParams =
@@ -468,7 +602,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         root.addView(
-            localRenderer,
+            newLocalRenderer,
             localParams
         )
 
@@ -502,11 +636,17 @@ class MainActivity : AppCompatActivity() {
         leaveButton.text =
             "Leave"
 
-        controls.addView(muteButton)
+        controls.addView(
+            muteButton
+        )
 
-        controls.addView(screenButton)
+        controls.addView(
+            screenButton
+        )
 
-        controls.addView(leaveButton)
+        controls.addView(
+            leaveButton
+        )
 
         val controlsParams =
             FrameLayout.LayoutParams(
@@ -525,29 +665,18 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
 
         /*
-         * Start listening for remote video
-         */
-        listenForRemoteVideo()
-
-        /*
-         * Mute
+         * Controls
          */
         muteButton.setOnClickListener {
 
             toggleMute()
         }
 
-        /*
-         * Share screen
-         */
         screenButton.setOnClickListener {
 
             startScreenShare()
         }
 
-        /*
-         * Leave
-         */
         leaveButton.setOnClickListener {
 
             leaveTraining()
@@ -555,7 +684,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /*
-     * Mute / Unmute
+     * Mute / Unmute microphone
      */
     private fun toggleMute() {
 
@@ -646,6 +775,10 @@ class MainActivity : AppCompatActivity() {
             room.disconnect()
         }
 
+        remoteRenderer = null
+        localRenderer = null
+        videoScreenShown = false
+
         createHomeScreen()
 
         Toast.makeText(
@@ -656,7 +789,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /*
-     * Permission check
+     * Check permissions
      */
     private fun hasPermissions(): Boolean {
 
