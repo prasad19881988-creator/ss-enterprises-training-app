@@ -1084,8 +1084,8 @@ class MainActivity : AppCompatActivity() {
                 root.addView(
                     infoCard(
                         "👤",
-                        it.identity
-                            ?: "Participant",
+                        it.identity?.value
+                               ?: "Participant",
 
                         if (isHindi)
                             "Connected"
