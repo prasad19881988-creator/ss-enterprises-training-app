@@ -5,29 +5,46 @@ import android.app.Activity
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
+import android.view.Gravity
 import android.widget.Button
-import android.widget.ImageView
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+
 import io.livekit.android.ConnectOptions
 import io.livekit.android.LiveKit
+import io.livekit.android.events.RoomEvent
+import io.livekit.android.events.collect
+import io.livekit.android.renderer.SurfaceViewRenderer
 import io.livekit.android.room.Room
+import io.livekit.android.room.track.LocalVideoTrack
+import io.livekit.android.room.track.Track
+import io.livekit.android.room.track.VideoTrack
 import io.livekit.android.room.track.screencapture.ScreenCaptureParams
 import io.livekit.android.token.TokenRequestOptions
 import io.livekit.android.token.TokenSource
+
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var room: Room
 
+    private lateinit var mainLayout: LinearLayout
+
+    private lateinit var remoteRenderer: SurfaceViewRenderer
+    private lateinit var localRenderer: SurfaceViewRenderer
+
+    private var isConnecting = false
+
     /*
-     * Screen capture result
+     * Screen sharing permission
      */
     private val screenCaptureLauncher =
         registerForActivityResult(
@@ -36,10 +53,11 @@ class MainActivity : AppCompatActivity() {
 
             if (result.resultCode != Activity.RESULT_OK) {
                 Toast.makeText(
-                    this@MainActivity,
+                    this,
                     "Screen sharing cancelled",
                     Toast.LENGTH_SHORT
                 ).show()
+
                 return@registerForActivityResult
             }
 
@@ -47,10 +65,11 @@ class MainActivity : AppCompatActivity() {
 
             if (data == null) {
                 Toast.makeText(
-                    this@MainActivity,
+                    this,
                     "Screen capture data not available",
                     Toast.LENGTH_LONG
                 ).show()
+
                 return@registerForActivityResult
             }
 
@@ -83,7 +102,7 @@ class MainActivity : AppCompatActivity() {
     /*
      * Camera + microphone permission
      */
-    private val requestPermissionsLauncher =
+    private val permissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
         ) { permissions ->
@@ -112,110 +131,90 @@ class MainActivity : AppCompatActivity() {
 
         super.onCreate(savedInstanceState)
 
-        /*
-         * Create LiveKit room
-         */
         room = LiveKit.create(applicationContext)
 
-        /*
-         * Main layout
-         */
-        val layout = LinearLayout(this)
+        createHomeScreen()
+    }
 
-        layout.orientation = LinearLayout.VERTICAL
+    /*
+     * Simple home screen for now
+     */
+    private fun createHomeScreen() {
 
-        layout.setPadding(
+        mainLayout = LinearLayout(this)
+
+        mainLayout.orientation =
+            LinearLayout.VERTICAL
+
+        mainLayout.setPadding(
             40,
             60,
             40,
             40
         )
 
-        /*
-         * Logo
-         */
-        val logo = ImageView(this)
-
-        logo.setImageResource(
-            R.drawable.a_clean_professional_logo_branding_graphic_on_a_de
-        )
-
-        logo.layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            300
-        )
-
-        logo.adjustViewBounds = true
-        logo.scaleType = ImageView.ScaleType.CENTER_INSIDE
-
-        /*
-         * Title
-         */
         val title = TextView(this)
 
-        title.text = "SS Enterprises Training"
+        title.text =
+            "SS Enterprises Training"
 
         title.textSize = 28f
 
+        title.gravity =
+            Gravity.CENTER
+
+        val videoButton =
+            Button(this)
+
+        videoButton.text =
+            "START VIDEO TRAINING"
+
+        val screenButton =
+            Button(this)
+
+        screenButton.text =
+            "SHARE SCREEN"
+
+        val muteButton =
+            Button(this)
+
+        muteButton.text =
+            "MUTE / UNMUTE"
+
+        mainLayout.addView(title)
+
+        mainLayout.addView(
+            videoButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        mainLayout.addView(
+            screenButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        mainLayout.addView(
+            muteButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        setContentView(mainLayout)
+
         /*
-         * Video button
-         */
-        val videoButton = Button(this)
-
-        videoButton.text = "Start Video Training"
-
-        /*
-         * Screen share button
-         */
-        val screenButton = Button(this)
-
-        screenButton.text = "Share Screen"
-
-        /*
-         * Mute button
-         */
-        val muteButton = Button(this)
-
-        muteButton.text = "Mute / Unmute"
-
-        /*
-         * Admin button
-         */
-        val adminButton = Button(this)
-
-        adminButton.text = "Admin Panel"
-
-        /*
-         * Add views
-         */
-        layout.addView(logo)
-
-        layout.addView(title)
-
-        layout.addView(videoButton)
-
-        layout.addView(screenButton)
-
-        layout.addView(muteButton)
-
-        layout.addView(adminButton)
-
-        setContentView(layout)
-
-        /*
-         * Video training
+         * Start video
          */
         videoButton.setOnClickListener {
 
             connectToTraining()
-        }
-
-        /*
-         * Mute / unmute
-         */
-        muteButton.setOnClickListener {
-
-            toggleMute()
         }
 
         /*
@@ -227,26 +226,55 @@ class MainActivity : AppCompatActivity() {
         }
 
         /*
-         * Admin panel
+         * Mute
          */
-        adminButton.setOnClickListener {
+        muteButton.setOnClickListener {
 
-            Toast.makeText(
-                this,
-                "Admin Panel - Coming Soon",
-                Toast.LENGTH_SHORT
-            ).show()
+            toggleMute()
         }
     }
 
     /*
-     * Connect to LiveKit training room
+     * Connect to LiveKit
      */
     private fun connectToTraining() {
 
+        /*
+         * Prevent double click / duplicate connect
+         */
+        if (isConnecting) {
+
+            Toast.makeText(
+                this,
+                "Connecting, please wait...",
+                Toast.LENGTH_SHORT
+            ).show()
+
+            return
+        }
+
+        /*
+         * Already connected
+         */
+        if (room.state != Room.State.DISCONNECTED) {
+
+            Toast.makeText(
+                this,
+                "Already connected to training",
+                Toast.LENGTH_SHORT
+            ).show()
+
+            showVideoScreen()
+
+            return
+        }
+
+        /*
+         * Check permissions
+         */
         if (!hasPermissions()) {
 
-            requestPermissionsLauncher.launch(
+            permissionLauncher.launch(
                 arrayOf(
                     Manifest.permission.CAMERA,
                     Manifest.permission.RECORD_AUDIO
@@ -256,12 +284,14 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        isConnecting = true
+
         lifecycleScope.launch {
 
             try {
 
                 /*
-                 * Token endpoint
+                 * Token server
                  */
                 val tokenSource =
                     TokenSource.fromEndpoint(
@@ -270,17 +300,18 @@ class MainActivity : AppCompatActivity() {
                     )
 
                 /*
-                 * Fetch LiveKit credentials
+                 * Get token
                  */
                 val response =
                     tokenSource.fetch(
                         TokenRequestOptions(
-                            roomName = "ss-enterprises-training"
+                            roomName =
+                                "ss-enterprises-training"
                         )
                     ).getOrThrow()
 
                 /*
-                 * Connect to LiveKit
+                 * Connect
                  */
                 room.connect(
                     url = response.serverUrl,
@@ -290,6 +321,47 @@ class MainActivity : AppCompatActivity() {
                         video = true
                     )
                 )
+
+                /*
+                 * Show video screen
+                 */
+                showVideoScreen()
+
+                /*
+                 * Attach local camera
+                 */
+                val localTrack =
+                    room.localParticipant
+                        .getTrackPublication(
+                            Track.Source.CAMERA
+                        )
+                        ?.track as? LocalVideoTrack
+
+                if (localTrack != null) {
+
+                    localTrack.addRenderer(
+                        localRenderer
+                    )
+                }
+
+                /*
+                 * Check existing remote participant
+                 */
+                val remoteTrack =
+                    room.remoteParticipants
+                        .values
+                        .firstOrNull()
+                        ?.getTrackPublication(
+                            Track.Source.CAMERA
+                        )
+                        ?.track as? VideoTrack
+
+                if (remoteTrack != null) {
+
+                    remoteTrack.addRenderer(
+                        remoteRenderer
+                    )
+                }
 
                 Toast.makeText(
                     this@MainActivity,
@@ -304,25 +376,214 @@ class MainActivity : AppCompatActivity() {
                     "Connection failed: ${e.message}",
                     Toast.LENGTH_LONG
                 ).show()
+
+            } finally {
+
+                isConnecting = false
             }
         }
     }
 
     /*
-     * Mute / unmute microphone
+     * Listen for remote video
+     */
+    private fun listenForRemoteVideo() {
+
+        lifecycleScope.launch {
+
+            room.events.collect { event ->
+
+                when (event) {
+
+                    is RoomEvent.TrackSubscribed -> {
+
+                        val track =
+                            event.track
+
+                        if (track is VideoTrack) {
+
+                            track.addRenderer(
+                                remoteRenderer
+                            )
+                        }
+                    }
+
+                    else -> {
+                    }
+                }
+            }
+        }
+    }
+
+    /*
+     * Video call screen
+     */
+    private fun showVideoScreen() {
+
+        val root =
+            FrameLayout(this)
+
+        /*
+         * Remote video
+         */
+        remoteRenderer =
+            SurfaceViewRenderer(this)
+
+        room.initVideoRenderer(
+            remoteRenderer
+        )
+
+        root.addView(
+            remoteRenderer,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        /*
+         * Local small video
+         */
+        localRenderer =
+            SurfaceViewRenderer(this)
+
+        room.initVideoRenderer(
+            localRenderer
+        )
+
+        val localParams =
+            FrameLayout.LayoutParams(
+                320,
+                480
+            )
+
+        localParams.gravity =
+            Gravity.TOP or Gravity.END
+
+        localParams.setMargins(
+            0,
+            40,
+            20,
+            0
+        )
+
+        root.addView(
+            localRenderer,
+            localParams
+        )
+
+        /*
+         * Bottom controls
+         */
+        val controls =
+            LinearLayout(this)
+
+        controls.orientation =
+            LinearLayout.HORIZONTAL
+
+        controls.gravity =
+            Gravity.CENTER
+
+        val muteButton =
+            Button(this)
+
+        muteButton.text =
+            "Mute"
+
+        val screenButton =
+            Button(this)
+
+        screenButton.text =
+            "Share"
+
+        val leaveButton =
+            Button(this)
+
+        leaveButton.text =
+            "Leave"
+
+        controls.addView(muteButton)
+
+        controls.addView(screenButton)
+
+        controls.addView(leaveButton)
+
+        val controlsParams =
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+
+        controlsParams.gravity =
+            Gravity.BOTTOM
+
+        root.addView(
+            controls,
+            controlsParams
+        )
+
+        setContentView(root)
+
+        /*
+         * Start listening for remote video
+         */
+        listenForRemoteVideo()
+
+        /*
+         * Mute
+         */
+        muteButton.setOnClickListener {
+
+            toggleMute()
+        }
+
+        /*
+         * Share screen
+         */
+        screenButton.setOnClickListener {
+
+            startScreenShare()
+        }
+
+        /*
+         * Leave
+         */
+        leaveButton.setOnClickListener {
+
+            leaveTraining()
+        }
+    }
+
+    /*
+     * Mute / Unmute
      */
     private fun toggleMute() {
+
+        if (room.state ==
+            Room.State.DISCONNECTED
+        ) {
+
+            Toast.makeText(
+                this,
+                "Please start video training first",
+                Toast.LENGTH_SHORT
+            ).show()
+
+            return
+        }
 
         lifecycleScope.launch {
 
             try {
 
                 val enabled =
-                    room.localParticipant.isMicrophoneEnabled
+                    room.localParticipant
+                        .isMicrophoneEnabled
 
-                room.localParticipant.setMicrophoneEnabled(
-                    !enabled
-                )
+                room.localParticipant
+                    .setMicrophoneEnabled(
+                        !enabled
+                    )
 
                 Toast.makeText(
                     this@MainActivity,
@@ -345,26 +606,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     /*
-     * Start Android screen capture permission dialog
+     * Start screen sharing
      */
     private fun startScreenShare() {
 
-        if (!hasPermissions()) {
-
-            Toast.makeText(
-                this,
-                "Please allow camera and microphone permission first",
-                Toast.LENGTH_SHORT
-            ).show()
-
-            return
-        }
-
-        /*
-         * User must start video training first
-         */
-        if (!room.localParticipant.isMicrophoneEnabled &&
-            !room.localParticipant.isCameraEnabled
+        if (room.state ==
+            Room.State.DISCONNECTED
         ) {
 
             Toast.makeText(
@@ -382,12 +629,34 @@ class MainActivity : AppCompatActivity() {
             ) as MediaProjectionManager
 
         screenCaptureLauncher.launch(
-            mediaProjectionManager.createScreenCaptureIntent()
+            mediaProjectionManager
+                .createScreenCaptureIntent()
         )
     }
 
     /*
-     * Check camera + microphone permissions
+     * Leave training
+     */
+    private fun leaveTraining() {
+
+        if (room.state !=
+            Room.State.DISCONNECTED
+        ) {
+
+            room.disconnect()
+        }
+
+        createHomeScreen()
+
+        Toast.makeText(
+            this,
+            "Training ended",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    /*
+     * Permission check
      */
     private fun hasPermissions(): Boolean {
 
@@ -395,22 +664,30 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.CAMERA
-            ) == PackageManager.PERMISSION_GRANTED
+            ) ==
+                PackageManager.PERMISSION_GRANTED
 
         val audioGranted =
             ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
+            ) ==
+                PackageManager.PERMISSION_GRANTED
 
-        return cameraGranted && audioGranted
+        return cameraGranted &&
+                audioGranted
     }
 
     override fun onDestroy() {
 
         if (::room.isInitialized) {
 
-            room.disconnect()
+            if (room.state !=
+                Room.State.DISCONNECTED
+            ) {
+
+                room.disconnect()
+            }
 
             room.release()
         }
